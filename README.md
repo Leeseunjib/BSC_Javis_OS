@@ -20,7 +20,7 @@ node server.js
 
 1. **AI WORKSHOP OS 레이아웃 & 6대 지식 은하 그래프 (`public/js/graph-engine.js`)**
    - `3D Galaxy` (입체 은하) / `2D Force` / `Concentric Rings` (MAPS 계층 동심원) / `Areas` (도메인 클러스터) / `Timeline` / `Brain Shape` (해부학적 좌·우뇌 뉴런) 6가지 뷰 실시간 전환.
-   - **Show, Don't Store**: 원본 마크다운 볼트를 변조하지 않고 읽기 전용으로 인덱싱하며, MAPS 2-Hop Signpost(`vault/01_MEMORY_MAP.md`)를 통해 토큰 소모를 **88.5% 절감**합니다.
+   - **Show, Don't Store**: 원본 마크다운 볼트를 변조하지 않고 읽기 전용으로 인덱싱합니다. 토큰 절감률은 이번 세션에서 기준량과 실제 전송량을 둘 다 재기 전에는 적지 않습니다.
 2. **자율 스폰 HUD 윈도우 매니저 (`public/js/window-spawner.js` & `/api/summon`)**
    - 대화 맥락에 따라 자비스가 스스로 판단하여 4대 홀로그램 플로팅 윈도우를 화면 위에 소환합니다:
      - `📘 설명서 창 (MANUAL)`

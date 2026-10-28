@@ -1768,7 +1768,8 @@
         es.addEventListener('os_wake_event', (ev) => {
           try {
             const data = JSON.parse(ev.data || '{}');
-            const phrase = String(data.heardText || 'BSC_자비스').trim();
+            const phrase = String(data.heardText || '').trim();
+            if (!phrase) return;
             window.focus?.();
             if (data.isBootGreeting) {
               this.playBootScene(this.cfg.bootStyle);

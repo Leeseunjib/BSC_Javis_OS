@@ -318,11 +318,12 @@
     }
 
     if (pathname === '/api/jarvis/stt') {
-      const body = parseBody(init);
       return jsonRes({
-        ok: true,
-        engine: 'HYBRID_STT_FALLBACK',
-        transcript: body.hintText || body.transcript || ''
+        ok: false,
+        available: false,
+        engine: 'NONE',
+        transcript: '',
+        message: '정적 호스팅에서는 음성을 받아쓰지 않습니다.'
       });
     }
 

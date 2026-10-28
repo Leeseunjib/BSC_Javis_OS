@@ -818,7 +818,7 @@ window.AIStudioData = {
       category: 'IT_SOFTWARE_ARCHITECTURE',
       summaryKo: '로컬 파일시스템 바인딩, 실시간 AST 구문 트리 자가치유 패치, 그리고 MAPS 4계층 메모리/펄스 데몬을 결합한 차세대 AI-OS 표준 아키텍처입니다.',
       detailsKo: 'Chatterbox Multilingual 오픈소스 TTS와 Ollama Gemma 4(e2b/e4b/31b) 로컬 추론을 결합하여 0원의 운영비로 엔터프라이즈급 보안을 달성합니다.',
-      keyInsights: ['2-Hop 브레인 인덱싱으로 컨텍스트 토큰 88.5% 절감', 'Chatterbox MIT 라이선스 기반 23개국어 제로샷 보이스 클로닝', 'Human-in-the-Loop 대표님 승인 게이트웨이 100% 내장'],
+      keyInsights: ['토큰 절감률은 이번 세션의 기준량과 실제 전송량을 둘 다 재기 전에는 표시하지 않습니다', 'Chatterbox MIT 라이선스 기반 23개국어 제로샷 보이스 클로닝', 'Human-in-the-Loop 대표님 승인 게이트웨이 100% 내장'],
       relevanceScore: 98,
       recursiveLevel: 4,
       rlRewardScore: 2.91,

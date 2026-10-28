@@ -1074,17 +1074,7 @@
                   <button class="win-ctrl-btn" id="btn-capture-screen" style="border-color:#00f0ff;color:#00f0ff;">🖥️ 현재 화면 비전 스캔</button>
                 </div>
                 <div id="vision-scan-result" style="font-size:11.5px;color:#cbd5e1;line-height:1.5;">
-                  <p style="margin-bottom:6px;"><b>[OmniParser UI 좌표 자동 감지 결과]</b></p>
-                  <table>
-                    <thead>
-                      <tr><th>감지된 UI 요소</th><th>신뢰도</th><th>좌표 (X, Y)</th><th>자동 제어</th></tr>
-                    </thead>
-                    <tbody>
-                      <tr><td>3D Galaxy 뷰 전환 버튼</td><td>99.4%</td><td>(44%, 2%)</td><td><button class="win-ctrl-btn btn-sim-click" data-target="3D Galaxy">클릭</button></td></tr>
-                      <tr><td>HOLO 에어터치 센서 스위치</td><td>98.7%</td><td>(92%, 68%)</td><td><button class="win-ctrl-btn btn-sim-click" data-target="HOLO Sensor">클릭</button></td></tr>
-                      <tr><td>하단 음성 마이크 오브</td><td>99.1%</td><td>(68%, 95%)</td><td><button class="win-ctrl-btn btn-sim-click" data-target="Voice Orb">클릭</button></td></tr>
-                    </tbody>
-                  </table>
+                  <p>측정된 화면 좌표가 없습니다. 버튼을 누르면 지금 이 창에 보이는 버튼 위치를 잽니다.</p>
                 </div>
               </div>
             </div>
@@ -1204,18 +1194,48 @@
           const res = await fetch('/api/jarvis/vision', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mode: 'screen', captureRealScreen: true, prompt: '현재 화면 UI 요소 좌표 스캔' })
+            body: JSON.stringify({ mode: 'screen' })
           });
-          const vData = await res.json();
+          const vData = await res.json().catch(() => ({}));
+          const width = window.innerWidth || 1;
+          const height = window.innerHeight || 1;
+          const rows = [];
+          for (const el of document.querySelectorAll('button, a, [role="button"]')) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width < 8 || rect.height < 8) continue;
+            const style = getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) continue;
+            const label = String(el.innerText || el.getAttribute('aria-label') || el.id || 'button').replace(/\s+/g, ' ').trim().slice(0, 40);
+            if (!label) continue;
+            rows.push({
+              label,
+              x: Math.round(rect.left + rect.width / 2),
+              y: Math.round(rect.top + rect.height / 2),
+              xPct: Math.round(((rect.left + rect.width / 2) / width) * 1000) / 10,
+              yPct: Math.round(((rect.top + rect.height / 2) / height) * 1000) / 10
+            });
+            if (rows.length >= 12) break;
+          }
+          const esc = (value) => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           const resBox = bodyEl.querySelector('#vision-scan-result');
-          if (resBox && vData.imageUrl) {
+          const serverNote = vData && vData.summary ? vData.summary : '데스크톱 화면 좌표 분석은 아직 없습니다.';
+          if (resBox) {
+            const bodyRows = rows.length
+              ? rows.map((row) => `<tr><td>${esc(row.label)}</td><td>${row.x}, ${row.y}</td><td>${row.xPct}%, ${row.yPct}%</td></tr>`).join('')
+              : '<tr><td colspan="3">보이는 버튼이 없습니다.</td></tr>';
             resBox.innerHTML = `
-              <div style="margin-bottom:6px;font-weight:700;color:#34d399;">📸 실시간 Windows 데스크톱 화면 캡처 완료</div>
-              <img src="${vData.imageUrl}" alt="Desktop Capture" style="width:100%;max-height:115px;object-fit:cover;border-radius:6px;border:1px solid rgba(0,240,255,0.35);margin-bottom:6px;" />
-              <div style="font-size:10.5px;color:#cbd5e1;">${vData.summary}</div>
+              <p style="margin-bottom:6px;"><b>이 브라우저 창에서 잰 버튼 위치 ${rows.length}개</b></p>
+              <table>
+                <thead><tr><th>버튼</th><th>가운데 픽셀</th><th>화면 비율</th></tr></thead>
+                <tbody>${bodyRows}</tbody>
+              </table>
+              <p style="margin-top:6px;color:#94a3b8;">${esc(serverNote)}</p>
             `;
           }
-          window.BSC_WORLDVIEW.showToast('👁️ OmniParser Vision', vData.summary || '화면 내 클릭 가능한 UI 요소 좌표를 추출했습니다.');
+          const toast = rows.length
+            ? `보이는 버튼 ${rows.length}개의 위치를 쟀습니다.`
+            : '보이는 버튼이 없어 좌표를 재지 못했습니다.';
+          window.BSC_WORLDVIEW.showToast('👁️ 화면 좌표', toast);
         });
       };
 
@@ -1313,7 +1333,7 @@
                 <tbody>
                   <tr><td>#108</td><td>3D_VFX</td><td>Blender Cycles 적응형 디노이징</td><td style="color:#34d399;font-weight:700;">96.8%</td><td>프레임당 렌더링 시간 38% 단축 달성</td></tr>
                   <tr><td>#107</td><td>FINANCE</td><td>몬테카를로 변동성 백테스팅 (VAR 99%)</td><td style="color:#00f0ff;font-weight:700;">91.4%</td><td>하락장 MDD -4.2% 이내 방어 리헤징</td></tr>
-                  <tr><td>#106</td><td>CODE_IDE</td><td>Antigravity AST 무중단 자가치유 패치</td><td style="color:#fbbf24;font-weight:700;">98.9%</td><td>타입 에러 0건 및 2-Hop 토큰 88.5% 절감</td></tr>
+                  <tr><td>#106</td><td>CODE_IDE</td><td>Antigravity AST 무중단 자가치유 패치</td><td style="color:#94a3b8;font-weight:700;">미측정</td><td>토큰 절감률은 이번 세션에서 재기 전에는 없습니다</td></tr>
                 </tbody>
               </table>
             </div>

@@ -238,9 +238,13 @@ try {
   return getWakeDaemonStatus();
 }
 
-function triggerOsWakeEvent(heardText = 'BSC_자비스', { port = 7777, getConnectedClients = () => 0, onWakeDetected = () => {}, source = 'MANUAL_OR_OS_MIC', forceOpenWindow = false } = {}) {
+function triggerOsWakeEvent(heardText = '', { port = 7777, getConnectedClients = () => 0, onWakeDetected = () => {}, source = 'MANUAL_OR_OS_MIC', forceOpenWindow = false } = {}) {
+  const heard = String(heardText || '').trim();
+  if (!heard) {
+    return { ok: false, source, heardText: '', message: '들은 문장이 없습니다.' };
+  }
   daemonState.lastWakeAt = new Date().toLocaleTimeString('ko-KR');
-  daemonState.lastHeardText = heardText;
+  daemonState.lastHeardText = heard;
   daemonState.wakeCount = (daemonState.wakeCount || 0) + 1;
   saveWakeState();
 
@@ -254,12 +258,12 @@ function triggerOsWakeEvent(heardText = 'BSC_자비스', { port = 7777, getConne
   const eventPayload = {
     ok: true,
     source,
-    heardText,
+    heardText: heard,
     wakeAt: daemonState.lastWakeAt,
     wakeCount: daemonState.wakeCount,
     connectedClients: clients,
     windowLaunched,
-    isBootGreeting: /(아빠\s*왔어|나\s*왔어|다녀왔어)/i.test(heardText)
+    isBootGreeting: /(아빠\s*왔어|나\s*왔어|다녀왔어)/i.test(heard)
   };
 
   if (typeof onWakeDetected === 'function') {
