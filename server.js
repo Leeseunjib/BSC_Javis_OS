@@ -490,68 +490,6 @@ async function synthesizeNeuralKoreanTts(rawText, personaKey = 'jarvis', customO
   }
 }
 
-async function queryLocalOllamaGemma(userQuestion, personaMode = 'jarvis', preferredModel = 'gemma4:e2b') {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 18000);
-  try {
-    const systemPrompt = [
-      '당신은 영화 아이언맨의 『J.A.R.V.I.S.(자비스)』이자 이건우 대표님(BeausCreators CEO)의 수석 파트너입니다.',
-      '핵심 규칙:',
-      '1. 영화 속 자비스처럼 극도로 간결하고 침착하며 지적인 어조로 핵심 결론만 1~2문장 이내(80자 내외)로 답변하세요.',
-      '2. 절대 사용자의 질문을 그대로 반복하거나 장황하게 늘어놓지 마세요.',
-      '3. 현재 대표님의 로컬 PC(Ollama)에는 Google 최신 오픈모델 gemma4:e4b, gemma4:e2b, gemma4:31b가 작동 중입니다.',
-      '4. 반드시 아래 형식으로만 짧고 명쾌하게 출력하세요:',
-      '[JARVIS] (영화 속 자비스처럼 1~2문장 핵심 보고)',
-      '[SOHA] (수석비서 소하의 1문장 실무 보충)'
-    ].join('\n');
-
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: preferredModel,
-        stream: false,
-        think: false,
-        keep_alive: '30m',
-        options: {
-          num_predict: 220,
-          temperature: 0.65
-        },
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userQuestion }
-        ]
-      })
-    });
-    clearTimeout(timeoutId);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const raw = (data?.message?.content || '').trim();
-    if (!raw) return null;
-
-    let jarvisText = '';
-    let sohaText = '';
-    const jarvisMatch = raw.match(/\[JARVIS\]\s*([\s\S]*?)(?=\[SOHA\]|$)/i);
-    const sohaMatch = raw.match(/\[SOHA\]\s*([\s\S]*?)$/i);
-
-    if (jarvisMatch && jarvisMatch[1].trim()) {
-      jarvisText = jarvisMatch[1].trim();
-      sohaText = sohaMatch && sohaMatch[1] ? sohaMatch[1].trim() : '';
-    } else {
-      jarvisText = raw;
-    }
-    return {
-      modelUsed: preferredModel,
-      jarvisText,
-      sohaText
-    };
-  } catch (e) {
-    clearTimeout(timeoutId);
-    return null;
-  }
-}
-
 // Connected SSE clients for real-time Window Summoning & Live Console streaming
 const sseClients = new Set();
 
@@ -997,7 +935,9 @@ async function processJarvisTurn(message, contextState = {}) {
     summonedWindows.push({
       windowType: 'LIVE_CONSOLE',
       title: '💻 실시간 에이전트 제작 콘솔 & 토큰 흐름(Token Flow) 관제창',
-      subtitle: 'CHL Harness Gate ACTIVE · MAPS 2-Hop Savings 88.5%'
+      subtitle: tokenTelemetry.savingsPct == null
+        ? '토큰 절감률은 이번 세션에서 아직 측정되지 않았습니다.'
+        : `이번 세션 절감률 ${tokenTelemetry.savingsPct}%`
     });
   }
   // 4. Generation Tools / 3D / Diagram / Studio
@@ -1842,12 +1782,13 @@ const server = http.createServer((req, res) => {
         String(n.note || '').toLowerCase().includes(kw) ||
         String(n.area || '').toLowerCase().includes(kw)
       ).slice(0, 6);
-      logConsoleStream('HQ Skill: micro-knowledge-query', `Pinpoint query "${kw}" -> ${matched.length} facts (99.8% token saved)`, 12, 3800);
+      const pickedChars = matched.reduce((sum, node) => sum + String(node.label || '').length + String(node.note || '').length, 0);
+      logConsoleStream('HQ Skill: micro-knowledge-query', `Pinpoint query "${kw}" -> ${matched.length} facts, ${pickedChars} chars`, 12, 3800);
       return sendJson(res, 200, {
         ok: true,
         skillId,
-        title: `🔍 [micro-knowledge-query] "${kw}" 핀셋 팩트 추출 완료 (${Date.now() - startTime}ms)`,
-        summary: `대표님, 523개 지식 노드 중 "${kw}" 핵심 문서 ${matched.length}건을 0.01초 만에 추출하여 토큰 99.8%를 절감했습니다.`,
+        title: `🔍 [micro-knowledge-query] "${kw}" 검색 완료 (${Date.now() - startTime}ms)`,
+        summary: `대표님, 지식 노드 ${(brainData.nodes || []).length}개 가운데 "${kw}"와 겹치는 문서 ${matched.length}건을 골랐습니다. 고른 제목과 메모는 ${pickedChars}자입니다.`,
         items: matched.map(m => ({ label: m.label, area: m.area, path: m.path, note: m.note }))
       });
     }
@@ -1923,18 +1864,31 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'POST' && pathname === '/api/jarvis/analyze') {
+    const started = Date.now();
     const body = await parseBody(req);
-    logConsoleStream('RL/SLM Data Analyst', `Analyzed dataset: ${body.datasetName || 'System Stream'}`, 40, 1100);
+    logConsoleStream('RL/SLM Data Analyst', `Session counters for dataset: ${body.datasetName || 'System Stream'}`, 40, 1100);
+    const savingsText = tokenTelemetry.savingsPct == null ? '미측정' : `${tokenTelemetry.savingsPct}%`;
     return sendJson(res, 200, {
-      headline: 'Laya-421M 라우팅 및 GRPO 어댑터 가중치 분포가 이상 편향 없이 최적 수렴(98.4%) 상태입니다.',
-      anomalyStatus: '정상',
-      pythonSnippet: 'import torch\nprint("VRAM Cache Optimal, KL Divergence < 0.015")',
+      ok: true,
+      headline: tokenTelemetry.measured
+        ? `이번 세션에서 센 글자는 ${tokenTelemetry.sessionChars}자입니다. 절감률은 ${savingsText}입니다.`
+        : '이번 세션에서 센 글자와 절감률은 아직 없습니다.',
+      anomalyStatus: '미측정',
       findings: [
-        { metric: '2-Hop 토큰 절감률', value: '88.5%', delta: '+14.2%', interpretation: '결정론적 브레인 맵 인덱싱으로 불필요한 LLM 호출 제거' },
-        { metric: 'Laya-421M 의도 분류 지연', value: '31 ms', delta: '-85 ms', interpretation: 'System-1 초고속 라우팅 정상 작동' },
-        { metric: '로컬 구동 비용', value: '$0.00', delta: '100% 절감', interpretation: '외부 유료 API 과금 제로(Zero-Cost) 달성' }
+        {
+          metric: '세션 글자 수',
+          value: tokenTelemetry.measured ? String(tokenTelemetry.sessionChars) : '미측정',
+          delta: null,
+          interpretation: '사용자 문장과 응답의 글자 합입니다.'
+        },
+        {
+          metric: '토큰 절감률',
+          value: savingsText,
+          delta: null,
+          interpretation: '기준량과 실제 전송량을 둘 다 재기 전에는 비율을 만들지 않습니다.'
+        }
       ],
-      latencyMs: 48
+      latencyMs: Date.now() - started
     });
   }
 
@@ -2488,24 +2442,34 @@ const server = http.createServer((req, res) => {
   // 10-W. Local Windows SAPI / Hybrid STT Fallback Endpoint (/api/jarvis/stt)
   if (req.method === 'POST' && pathname === '/api/jarvis/stt') {
     const body = await parseBody(req);
-    const fallbackText = String(body.hintText || body.transcript || '').trim();
-    if (fallbackText) {
+    if (process.platform !== 'win32') {
       return sendJson(res, 200, {
-        ok: true,
-        engine: 'HYBRID_STT_VERIFIED',
-        transcript: fallbackText
+        ok: false,
+        available: false,
+        engine: 'NONE',
+        transcript: '',
+        message: '이 호스트에는 Windows 음성 인식이 없습니다. 브라우저가 들은 문장만 사용합니다.'
       });
     }
-    // Listen briefly via Windows SAPI if direct mic capture requested on host
     const listenSec = Math.min(6, Math.max(2, Number(body.durationSec) || 3));
     const psStt = `powershell -NoProfile -Command "try { Add-Type -AssemblyName System.Speech; $rec = New-Object System.Speech.Recognition.SpeechRecognitionEngine; $rec.SetInputToDefaultAudioDevice(); $rec.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)); $res = $rec.Recognize([TimeSpan]::FromSeconds(${listenSec})); if ($res -and $res.Text) { Write-Output $res.Text } else { Write-Output '' } } catch { Write-Output '' }"`;
     const sttOut = await new Promise((resolve) => {
       exec(psStt, { windowsHide: true, timeout: (listenSec + 2) * 1000 }, (err, stdout) => {
-        resolve(String(stdout || '').trim());
+        resolve(err ? '' : String(stdout || '').trim());
       });
     });
+    if (!sttOut) {
+      return sendJson(res, 200, {
+        ok: false,
+        available: true,
+        engine: 'WINDOWS_SAPI_LOCAL_STT',
+        transcript: '',
+        message: '들은 문장이 없습니다.'
+      });
+    }
     return sendJson(res, 200, {
       ok: true,
+      available: true,
       engine: 'WINDOWS_SAPI_LOCAL_STT',
       transcript: sttOut
     });
@@ -2604,7 +2568,10 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'POST' && pathname === '/api/jarvis/sasarisa/wake-trigger') {
     const body = await parseBody(req);
-    const phrase = String(body.heardText || body.phrase || 'BSC_자비스').trim();
+    const phrase = String(body.heardText || body.phrase || '').trim();
+    if (!phrase) {
+      return sendJson(res, 400, { ok: false, error: '들은 문장이 없습니다.' });
+    }
     const wakeEvt = triggerOsWakeEvent(phrase, {
       port: PORT,
       getConnectedClients: () => sseClients.size,
