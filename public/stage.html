@@ -23,6 +23,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 <meta charset="utf-8">
 <title>BSC J.A.R.V.I.S. — Barehands Full-Screen AR Camera Stage</title>
 <script src="/js/jarvis-voice-galaxy-os.js"></script>
+<script type="module" src="/js/stage-face-field.js"></script>
 <script>
 if (location.hostname !== "127.0.0.1" && location.hostname !== "localhost") {
   const s = document.createElement("script");
@@ -297,17 +298,16 @@ if (location.protocol === "file:") {
 </body>';
   throw new Error("barehands: opened over file://, server required");
 }
-// First-run watchdog: the hand tracker and the 3D library arrive from CDNs,
-// so with no internet the boot screen sits forever with no error. Say so.
+// The hand tracker is served from /vendor. This only reports a stuck boot screen.
 setTimeout(function () {
   var b = document.getElementById("boot");
   if (b && b.isConnected) b.innerHTML +=
-    '<span style="color:#7fb3ab;font-size:12px">still loading? the first run downloads the hand tracker and needs internet once. TROUBLESHOOTING.md has more.</span>';
+    '<span style="color:#7fb3ab;font-size:12px">still loading? the local hand tracker did not finish. Check /vendor/wasm and the camera permission.</span>';
 }, 12000);
 </script>
 <video id="cam" autoplay playsinline muted></video>
 <!-- 🌌 3D AR Holographic Neural Galaxy Overlay Canvas -->
-<canvas id="galaxy-3d-canvas" style="position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none;transition:opacity 0.6s ease;opacity:0.85;"></canvas>
+<canvas id="galaxy-3d-canvas" style="position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none;transition:opacity 0.6s ease;opacity:0;"></canvas>
 <!-- 🎙️ 실시간 음성인식 & 음성 파형 플로팅 HUD -->
 <div id="jarvis-voice-hud" style="position:fixed;bottom:54px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;align-items:center;gap:12px;background:rgba(4,18,24,0.86);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1.5px solid rgba(0,240,255,0.55);border-radius:999px;padding:8px 24px;box-shadow:0 8px 32px rgba(0,240,255,0.22);transition:all 0.3s ease;pointer-events:none;">
   <span id="voice-dot" style="width:10px;height:10px;border-radius:50%;background:#00f0ff;box-shadow:0 0 10px #00f0ff;animation:voicePulse 1.6s infinite;"></span>
@@ -327,9 +327,9 @@ setTimeout(function () {
 <div id="toast"></div>
 <a id="jarvis-return-pill" href="/?view=neuron" onclick="if(window.parent && window.parent !== window && window.parent.BSC_ToggleMainArStage){ window.parent.BSC_ToggleMainArStage(false); return false; }" style="position:fixed;top:16px;right:18px;z-index:99999;background:rgba(5,14,28,0.92);color:#00f0ff;border:1.5px solid rgba(0,240,255,0.65);border-radius:999px;padding:8px 16px;font-family:Pretendard,-apple-system,sans-serif;font-size:12px;font-weight:800;text-decoration:none;box-shadow:0 4px 18px rgba(0,0,0,0.55);">🌌 3D 뉴런 은하 뷰로 전환</a>
 
+<script src="/js/stage-hud-bridge.js"></script>
 <script type="module">
-import { HandLandmarker, FilesetResolver } from
-  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+import { HandLandmarker, FilesetResolver } from "/vendor/vision_bundle.mjs";
 
 // modes: ?mode=mirror (default, self-view) | overlay (transparent — OBS
 // browser sources can't open cameras reliably on macOS, kept for browsers
@@ -338,11 +338,10 @@ import { HandLandmarker, FilesetResolver } from
 // the key — keying green ate the cursor on the first OBS test, 2026-08-07).
 // ?cam=<label substring> picks the tracking camera; C cycles cameras live.
 const Q = new URLSearchParams(location.search);
-// ?res=WxH — capture resolution (default 1920x1080, the tracking sweet
-// spot: MediaPipe downscales every frame to its model input anyway, so
-// higher res buys self-view sharpness, never accuracy — and costs fps
-// on weak machines; 1280x720 is the low-end saver, 3840x2160 the 4K
-// self-view). Capture res ≠ broadcast res: in an OBS rig the audience
+// ?res=WxH — capture resolution (default 1280x720; MediaPipe downscales
+// every frame to its model input, so higher res buys self-view sharpness,
+// never accuracy. 3840x2160 is the 4K self-view). Capture res ≠ broadcast
+// res: in an OBS rig the audience
 // sees OBS's own camera source; this only shapes the tracker's sensor.
 // ?portrait=1 — request the vertical capture instead of coercing the
 // camera into landscape (a camera flipped to portrait negotiates its
@@ -352,7 +351,7 @@ const Q = new URLSearchParams(location.search);
 const PORTRAIT = Q.get("portrait") === "1";
 const RES = (() => {
   const m = /^(\d{3,4})x(\d{3,4})$/i.exec(Q.get("res") || "");
-  return m ? [+m[1], +m[2]] : [1920, 1080];
+  return m ? [+m[1], +m[2]] : [1280, 720];
 })();
 let MODE = Q.get("mode") || "mirror";
 if (MODE === "greenkey") { MODE = "key"; Q.set("key", "green"); }   // back-compat
@@ -1430,7 +1429,7 @@ function makeOrb(def) {
 
 function ringToggle(ring) {
   const nowMs = performance.now();
-  if (nowMs - (window.__ringToggleGuardT || 0) < 1100) return;
+  if (window.__ringToggleGuardT && nowMs - window.__ringToggleGuardT < 1100) return;
   window.__ringToggleGuardT = nowMs;
   const up = items.filter(i => i.type === "orb" && i.el.isConnected);
   if (up.length) { up.forEach(killItem); return; }
@@ -1586,7 +1585,7 @@ function browserY(oy) {
 
 function openBrowser(kind, ox, oy) {
   const nowMs = performance.now();
-  if (nowMs - (window.__openBrowserGuardT || 0) < 950) return;
+  if (window.__openBrowserGuardT && nowMs - window.__openBrowserGuardT < 950) return;
   window.__openBrowserGuardT = nowMs;
   const ex = items.find(i => i.type === "browser" && i.bkind === kind);
   if (ex) {
@@ -1637,7 +1636,7 @@ function flashRow(container, i) {
 
 function browserTap(b, cur) {
   const nowMs = performance.now();
-  if (nowMs - (window.__browserTapGuardT || 0) < 750) return;
+  if (window.__browserTapGuardT && nowMs - window.__browserTapGuardT < 750) return;
   window.__browserTapGuardT = nowMs;
   for (const rowEl of b.el.querySelectorAll(".brow")) {
     const r = rowEl.getBoundingClientRect();
@@ -1660,7 +1659,7 @@ function browserTap(b, cur) {
         killItem(b);   // v3.3 (his broadened rule): selecting ANYTHING
                        // closes the whole pane — only dir taps keep it
       } else if (row.k === "prop") {
-        const src = "/media/" + row.f;
+        const src = row.f.charAt(0) === "/" ? row.f : ("/media/" + row.f);
         const it = isModelSrc(src) ? makeModel(src, row.t)
                                    : makeImage(src, row.t);
         it.x = Math.min(b.x + 480, innerWidth - 240); it.y = b.y;
@@ -1843,7 +1842,7 @@ function installPointerFallback() {
   }
 
   const PID = 99; // Virtual hand cursor ID for mouse/touch
-  const isUIControl = (t) => t && t.closest && (t.closest("#jarvis-cam-fallback-bar") || t.closest("#jarvis-return-pill") || t.closest("#jarvis-phone-cam-modal") || t.closest("#jarvis-ui-manager-modal") || t.closest("#jarvis-ui-quick-dock"));
+  const isUIControl = (t) => t && t.closest && (t.closest("#jarvis-cam-fallback-bar") || t.closest("#jarvis-return-pill") || t.closest("#jarvis-phone-cam-modal") || t.closest("#jarvis-ui-manager-modal") || t.closest("#jarvis-ui-quick-dock") || t.closest("#jarvis-face-labels"));
 
   window.addEventListener("pointermove", (e) => {
     if (isUIControl(e.target)) return;
@@ -2456,40 +2455,108 @@ function physics(dt) {
   });
 }
 
+function createHandLandmarker(vision, delegate) {
+  return HandLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: "/vendor/hand_landmarker.task",
+      delegate
+    },
+    numHands: 2,
+    runningMode: "VIDEO",
+    minHandDetectionConfidence: 0.45,
+    minHandPresenceConfidence: 0.45,
+    minTrackingConfidence: 0.45
+  });
+}
+
 async function boot() {
-  // 1. Immediately remove #boot and render the AR Stage + Orbs + UI Dock in 0.1s (never block on camera or CDN!)
+  window.BSC_LandmarkToScreen = toScreen;
+  window.BSC_StageAPI = {
+    orbList() { return CFG.orbs || []; },
+    orbIndex(key) {
+      const want = String(key || '').toUpperCase();
+      const needle = want === 'NOTES' ? 'NOTE' : want;
+      return (CFG.orbs || []).findIndex((orb) => String(orb.title || '').toUpperCase().includes(needle));
+    },
+    openBrowser(kind) { openBrowser(kind); },
+    ringToggle() {
+      const ring = items.find((item) => item.type === "widget" && item.def && item.def.w === "ring");
+      if (!ring) return;
+      window.__ringToggleGuardT = 0;
+      ringToggle(ring);
+    },
+    async reloadOrbs() {
+      await loadTree();
+      items.filter((item) => item.type === "orb").forEach(killItem);
+      const ring = items.find((item) => item.type === "widget" && item.def && item.def.w === "ring");
+      if (ring && !items.some((item) => item.type === "orb")) {
+        window.__ringToggleGuardT = 0;
+        ringToggle(ring);
+      }
+    },
+    spawnImage(opts) {
+      const src = opts.src;
+      const title = opts.title || "";
+      const it = isModelSrc(src) ? makeModel(src, title) : makeImage(src, title);
+      if (opts.xFrac != null) it.x = innerWidth * Number(opts.xFrac);
+      if (opts.yFrac != null) it.y = innerHeight * Number(opts.yFrac);
+      if (opts.scale) it.scale = Number(opts.scale);
+      it.def.cardId = opts.id || "";
+      it.anim = { k: "in", t: 0 };
+      it.el.style.opacity = "0.05";
+      items.push(it);
+      return it.id;
+    },
+    spawnTextCard(opts) {
+      const cardId = opts.id || ("card_" + Date.now());
+      const prev = items.find((item) => item.def && item.def.cardId === cardId);
+      if (prev) killItem(prev);
+      const el = document.createElement("div");
+      el.className = "panel";
+      el.innerHTML = `<div class="bar"><h3>${escT(opts.title || "")}</h3><span class="close" title="닫기">✕</span></div>` +
+        `<div class="body"><div class="scroll" style="white-space:pre-wrap;">${renderNote(opts.text || "")}</div></div>`;
+      BEHIND.appendChild(el);
+      const card = {
+        el, id: UID++, type: "panel",
+        def: { title: opts.title || "", file: "", cardId },
+        x: innerWidth * (opts.xFrac == null ? 0.72 : Number(opts.xFrac)),
+        y: innerHeight * (opts.yFrac == null ? 0.4 : Number(opts.yFrac)),
+        scale: 1, vx: 0, vy: 0, grabbedBy: [], ox: 0, oy: 0, flying: false, stretch: null,
+        scrollY: 0, body: el.querySelector(".scroll")
+      };
+      const closeBtn = el.querySelector(".close");
+      if (closeBtn) closeBtn.onclick = (ev) => { ev.stopPropagation(); killItem(card); };
+      card.anim = { k: "in", t: 0 };
+      card.el.style.opacity = "0.05";
+      items.push(card);
+      return card.id;
+    }
+  };
+  // 1. Immediately remove #boot and render the AR Stage + Orbs + UI Dock in 0.1s (never block on camera or model load)
   const bootEl = document.getElementById("boot");
   if (bootEl) bootEl.remove();
   installPointerFallback();
   await loadTree();
   spawnStage();
-  // 2. Initialize Camera + MediaPipe HandLandmarker asynchronously in the background
+  const bootRing = items.find((item) => item.type === "widget" && item.def && item.def.w === "ring");
+  if (bootRing && !items.some((item) => item.type === "orb")) ringToggle(bootRing);
+  // 2. Initialize Camera + local MediaPipe HandLandmarker in the background
   (async () => {
     try { await pickInitialCam(); } catch (_) {}
     try {
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
-      landmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath:
-          "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-          delegate: "GPU" },
-        numHands: 2, runningMode: "VIDEO",
-        minHandDetectionConfidence: 0.45,
-        minHandPresenceConfidence: 0.45,
-        minTrackingConfidence: 0.45 });
+      const vision = await FilesetResolver.forVisionTasks("/vendor/wasm");
+      window.BSC_VisionFileset = vision;
+      try {
+        landmarker = await createHandLandmarker(vision, "GPU");
+      } catch (gpuErr) {
+        landmarker = await createHandLandmarker(vision, "CPU");
+      }
     } catch (mpErr) {
       console.warn("MediaPipe HandLandmarker fallback:", mpErr);
       landmarker = null;
     }
   })();
-  // Auto-bloom ONLY the 3 clean Orbs on the left (Zero extra floating cards on boot!)
-  setTimeout(() => {
-    const ring = items.find(i => i.type === "widget" && i.def && i.def.w === "ring");
-    if (ring && !items.some(i => i.type === "orb")) ringToggle(ring);
-    if (window.BSC_SpawnUICardImage) {
-      window.BSC_SpawnUICardImage({ id: "ui_sys", title: "시스템 모니터 HUD", src: "/img/ui-icons/ui_card_system.svg", xFrac: 0.72, yFrac: 0.34, scale: 0.86 });
-    }
-  }, 360);
+  // Orbs bloom with the ring. Status cards stay behind the top-bar button.
   window.BSC_BarehandsCloseAllCards = function() {
     let closed = 0;
     items.forEach(it => {
@@ -2506,6 +2573,14 @@ async function boot() {
   let lastT = performance.now();
 
   function frame(now) {
+    if (window.__stageActive === false) {
+      window.__stageFrameOn = false;
+      return;
+    }
+    if (document.hidden) {
+      requestAnimationFrame(frame);
+      return;
+    }
     const dt = Math.min((now - lastT) / 1000, 0.05); lastT = now;
     if (!noWebcamMode && landmarker && cam.srcObject && cam.videoWidth > 0 && cam.currentTime !== lastVideoTs) {
       lastVideoTs = cam.currentTime;
@@ -2870,6 +2945,12 @@ async function boot() {
       // ---- PINCH-ONLY MODE: Two-Hand Clap Reset disabled per CEO instruction ----
       frames++;
       if (now - lastFpsTs > 1000) { fps = frames; frames = 0; lastFpsTs = now; }
+      window.BSC_OnCameraFrame?.(cam, now, res);
+    } else if (!noWebcamMode && !landmarker && cam.srcObject && cam.videoWidth > 0 && cam.currentTime !== lastVideoTs) {
+      lastVideoTs = cam.currentTime;
+      window.BSC_OnCameraFrame?.(cam, now, { landmarks: [] });
+    } else if (noWebcamMode || !cam.srcObject) {
+      window.BSC_FaceFieldClear?.();
     }
     physics(dt);
     renderModels();           // the 3D holograms draw their frames
@@ -2877,6 +2958,29 @@ async function boot() {
     pushState(now);           // stream the scene to the OBS render page
     requestAnimationFrame(frame);
   }
+  window.__stageActive = true;
+  window.__stageFrameOn = true;
+  window.BSC_StageSetActive = function (on) {
+    const next = on !== false;
+    window.__stageActive = next;
+    if (!next) {
+      if (cam.srcObject) {
+        cam.srcObject.getTracks().forEach((track) => track.stop());
+        cam.srcObject = null;
+      }
+      try { window.BSC_VoiceListener?.suspend?.(); } catch (_) {}
+      try { window.BSC_GalaxyView?.pauseForStage?.(false); } catch (_) {}
+      try { window.BSC_FaceFieldClear?.(); } catch (_) {}
+      return;
+    }
+    try { window.BSC_VoiceListener?.resume?.(); } catch (_) {}
+    try { window.BSC_GalaxyView?.pauseForStage?.(true); } catch (_) {}
+    if (!cam.srcObject) pickInitialCam().catch(() => {});
+    if (!window.__stageFrameOn) {
+      window.__stageFrameOn = true;
+      requestAnimationFrame(frame);
+    }
+  };
   requestAnimationFrame(frame);
 }
 

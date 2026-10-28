@@ -107,9 +107,36 @@
       const pill = document.getElementById('sasarisa-minimized-pill');
       if (!arFrame) return;
 
-      const isVisible = arFrame.style.display !== 'none';
-      const show = typeof forceShow === 'boolean' ? forceShow : !isVisible;
-      arFrame.style.display = show ? 'block' : 'none';
+      const wasShowing = arFrame.style.display !== 'none' && !!arFrame.getAttribute('src');
+      const show = typeof forceShow === 'boolean' ? forceShow : !wasShowing;
+      const pokeStage = (on) => {
+        const run = () => {
+          try { arFrame.contentWindow?.BSC_StageSetActive?.(on); } catch (_) {}
+        };
+        let hasApi = false;
+        try { hasApi = typeof arFrame.contentWindow?.BSC_StageSetActive === 'function'; } catch (_) {}
+        if (hasApi) {
+          run();
+          return;
+        }
+        if (arFrame.getAttribute('src')) arFrame.addEventListener('load', run, { once: true });
+      };
+      if (show) {
+        if (!arFrame.getAttribute('src')) arFrame.src = '/stage.html';
+        arFrame.style.display = 'block';
+        window.BrainGraphEngine?.setPaused?.(true);
+        window.MultimodalEngine?.suspendForArStage?.(true);
+        pokeStage(true);
+        document.getElementById('minimal-top-bar')?.style.setProperty('display', 'none');
+        document.getElementById('clean-bottom-bar')?.style.setProperty('display', 'none');
+      } else {
+        arFrame.style.display = 'none';
+        pokeStage(false);
+        window.BrainGraphEngine?.setPaused?.(false);
+        if (wasShowing) window.MultimodalEngine?.suspendForArStage?.(false);
+        document.getElementById('minimal-top-bar')?.style.removeProperty('display');
+        document.getElementById('clean-bottom-bar')?.style.removeProperty('display');
+      }
 
       if (toggleBtn) {
         toggleBtn.innerHTML = show

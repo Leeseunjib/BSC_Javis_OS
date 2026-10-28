@@ -76,6 +76,7 @@ window.MultimodalEngine = {
 
     // Start Always-On Continuous Korean Voice Recognition immediately on load (`Ear.swift` 1:1)
     setTimeout(() => {
+      if (this.arStageOwnsMic()) return;
       if (!this.isListening) {
         this.alwaysListening = true;
         this.startMicWaveformVisualizer();
@@ -87,6 +88,7 @@ window.MultimodalEngine = {
 
     // Also auto-resume voice recognition on the first click/keydown if the browser blocked cold-start mic
     const autoResumeVoiceOnce = () => {
+      if (this.arStageOwnsMic()) return;
       this.startMicWaveformVisualizer();
       if (this.recognition && !this.isListening) {
         this.alwaysListening = true;
@@ -361,6 +363,38 @@ window.MultimodalEngine = {
   },
 
   alwaysListening: false,
+  _arStageOwnsMic: false,
+
+  arStageOwnsMic() {
+    return this._arStageOwnsMic === true;
+  },
+
+  stopMicWaveform() {
+    this._micStop = true;
+    if (this._micAnimId) cancelAnimationFrame(this._micAnimId);
+    this._micAnimId = 0;
+    if (this._micStream) {
+      this._micStream.getTracks().forEach((track) => track.stop());
+      this._micStream = null;
+    }
+    try { this._micAudioCtx?.close(); } catch (_) {}
+    this._micAudioCtx = null;
+    this._micAnalyser = null;
+  },
+
+  suspendForArStage(on) {
+    this._arStageOwnsMic = !!on;
+    if (on) {
+      this.alwaysListening = false;
+      try { this.recognition?.stop(); } catch (_) {}
+      this.stopMicWaveform();
+      return;
+    }
+    this.alwaysListening = true;
+    try { this.recognition?.start(); } catch (_) {}
+    this.startMicWaveformVisualizer();
+  },
+
   _sttSilenceTimer: null,
   _sttBufferText: '',
   _micAudioCtx: null,
@@ -386,9 +420,17 @@ window.MultimodalEngine = {
   },
 
   async startMicWaveformVisualizer() {
+    if (this.arStageOwnsMic()) return;
     if (this._micAnalyser) return;
+    this._micStop = false;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this._micStream = stream;
+      if (this._micStop || this.arStageOwnsMic()) {
+        stream.getTracks().forEach((track) => track.stop());
+        this._micStream = null;
+        return;
+      }
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       this._micAudioCtx = new AudioCtx();
       const source = this._micAudioCtx.createMediaStreamSource(stream);
@@ -402,6 +444,7 @@ window.MultimodalEngine = {
       this._lastSpeechResultAt = Date.now();
 
       const draw = () => {
+        if (this._micStop || !this._micAnalyser || this.arStageOwnsMic()) return;
         this._micAnimId = requestAnimationFrame(draw);
         this._micAnalyser.getByteFrequencyData(dataArray);
 
@@ -417,7 +460,7 @@ window.MultimodalEngine = {
 
         // Voice Activity Detector (VAD): if user is clearly speaking into the mic (avgLevel > 0.14)
         // while TTS is NOT speaking, ensure SpeechRecognition is actively running!
-        if (avgLevel > 0.14 && !this.isSpeakingTts) {
+        if (avgLevel > 0.14 && !this.isSpeakingTts && !this.arStageOwnsMic()) {
           loudTicks++;
           if (!this.isListening && this.recognition) {
             this.alwaysListening = true;
@@ -634,15 +677,15 @@ window.MultimodalEngine = {
         // Half-Duplex: Stay paused while TTS is speaking; _resumeMicAfterTts() will restart it
         return;
       }
-      if (this.alwaysListening !== false) {
+      if (this.alwaysListening !== false && !this.arStageOwnsMic()) {
         setTimeout(() => {
           try {
-            if (!this.isListening && !this.isSpeakingTts) {
+            if (!this.isListening && !this.isSpeakingTts && !this.arStageOwnsMic()) {
               this.recognition.start();
             }
           } catch (_) {}
         }, 220);
-      } else {
+      } else if (!this.arStageOwnsMic()) {
         const micBtn = document.getElementById('btn-sasarisa-pill-mic');
         if (micBtn) {
           micBtn.style.background = 'rgba(0,240,255,0.16)';
@@ -678,9 +721,10 @@ window.MultimodalEngine = {
   _resumeMicAfterTts() {
     this.isSpeakingTts = false;
     this.lastSpokenAt = Date.now();
+    if (this.arStageOwnsMic()) return;
     if (this.alwaysListening !== false && this.recognition) {
       setTimeout(() => {
-        if (!this.isListening && !this.isSpeakingTts) {
+        if (!this.isListening && !this.isSpeakingTts && !this.arStageOwnsMic()) {
           try {
             this.recognition.start();
           } catch (_) {}
@@ -690,6 +734,7 @@ window.MultimodalEngine = {
   },
 
   toggleVoiceListening(forceContinuous) {
+    if (this.arStageOwnsMic()) return;
     if (!this.recognition) {
       fetch('/api/jarvis/stt', {
         method: 'POST',
