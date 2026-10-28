@@ -1296,6 +1296,155 @@ const MIME_TYPES = {
   '.mp3': 'audio/mpeg'
 };
 
+const ICON_CTRL_ROOT = 'C:\\자비스_화면_아이콘 제어';
+const STAGE_ICON_DIR = path.join(__dirname, 'vault', 'stage-orbs', 'icon-control');
+const STAGE_VAULT_DIR = path.join(__dirname, 'vault');
+const STAGE_RESEARCH_DIR = path.join(__dirname, 'research');
+const STAGE_RESEARCH_REPORT = path.join(__dirname, 'public', 'assets', 'research_concepts', 'jarvis_deep_research_report.md');
+const STAGE_COUNCIL_FILE = path.join(PUBLIC_DIR, 'data', 'bsc-agent-council.json');
+const STAGE_HQ_WIN = 'C:\\BeausCreators\\01.BSC_HQ\\1.Documents';
+const STAGE_SKIP_DIRS = new Set(['node_modules', 'Library', 'Temp', 'Logs', 'obj', 'bin', 'venv', '.venv', 'dist', 'build', 'out', 'target', 'vendor', 'packages', '__pycache__', 'CoVision_Archive', 'harness2', 'stage-orbs']);
+const STAGE_PROP_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.webm', '.glb', '.gltf']);
+
+function stageDirExists(p) {
+  try { return !!p && fs.existsSync(p) && fs.statSync(p).isDirectory(); } catch (_) { return false; }
+}
+
+function stagePublicOrb(orb) {
+  return { id: orb.id, title: orb.title, kind: orb.kind, icon: orb.icon };
+}
+
+function readCouncilSessions() {
+  try {
+    const data = JSON.parse(fs.readFileSync(STAGE_COUNCIL_FILE, 'utf8'));
+    return Array.isArray(data.sessions) ? data.sessions : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function councilMarkdown(session) {
+  const lines = [
+    `# ${session.topic || session.id || 'BSC_HQ'}`,
+    '',
+    `- 모드: ${session.modeLabel || session.mode || ''}`,
+    `- 시각: ${session.timestamp || ''}`,
+    ''
+  ];
+  for (const entry of session.entries || []) {
+    lines.push(`## ${entry.speaker || entry.agentId || '발언'}`);
+    if (entry.roleTag) lines.push(`역할: ${entry.roleTag}`);
+    lines.push('');
+    lines.push(entry.text || '');
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+function buildStageOrbs() {
+  const iconWin = path.join(ICON_CTRL_ROOT, '01.화면_아이콘');
+  const notesWin = path.join(ICON_CTRL_ROOT, '02.대화_노트');
+  const hqOk = stageDirExists(STAGE_HQ_WIN);
+  const extraNotes = fs.existsSync(STAGE_RESEARCH_REPORT)
+    ? [{ title: 'JARVIS Deep Research Report', rel: 'extra/jarvis_deep_research_report.md', abs: STAGE_RESEARCH_REPORT }]
+    : [];
+  return [
+    { id: 'ctrl', title: '아이콘 제어', path: stageDirExists(iconWin) ? iconWin : STAGE_ICON_DIR, kind: 'notes', icon: '/img/ui-icons/jarvis_ui_orb_control.png' },
+    { id: 'notes', title: 'Notes', path: stageDirExists(notesWin) ? notesWin : STAGE_VAULT_DIR, kind: 'notes', icon: '/img/ui-icons/icon_notes.svg' },
+    { id: 'hq', title: 'BSC_HQ', path: hqOk ? STAGE_HQ_WIN : null, kind: 'notes', virtual: hqOk ? null : 'council', icon: '/img/ui-icons/jarvis_ui_orb_data.png' },
+    { id: 'research', title: 'Research', path: STAGE_RESEARCH_DIR, kind: 'notes', icon: '/img/ui-icons/icon_research.svg', extraNotes },
+    { id: 'props', title: 'Props', path: null, kind: 'media', icon: '/img/ui-icons/icon_props.svg' }
+  ];
+}
+
+function walkStageNotes(dir, orbIdx, root, depth, state) {
+  const out = { name: path.basename(dir || ''), notes: [], dirs: [] };
+  if (!dir || !stageDirExists(dir) || depth > 2 || state.visited > 120) return out;
+  state.visited += 1;
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return out; }
+  for (const entry of entries.slice(0, 28)) {
+    if (entry.name.startsWith('.') || STAGE_SKIP_DIRS.has(entry.name)) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const sub = walkStageNotes(full, orbIdx, root, depth + 1, state);
+      if (sub.notes.length || sub.dirs.length) out.dirs.push(sub);
+    } else if (entry.name.toLowerCase().endsWith('.md') && entry.name !== 'CLAUDE.md') {
+      const rel = path.relative(root, full).split(path.sep).join('/');
+      out.notes.push({ title: path.basename(entry.name, path.extname(entry.name)), file: `${orbIdx}/${rel}` });
+    }
+  }
+  return out;
+}
+
+function stageNoteTree(orb, orbIdx) {
+  if (orb.virtual === 'council') {
+    return {
+      name: orb.title,
+      notes: readCouncilSessions()
+        .filter((session) => session && session.id && /^[\w.-]+$/.test(session.id))
+        .map((session) => ({ title: session.topic || session.id, file: `${orbIdx}/council/${session.id}.md` })),
+      dirs: []
+    };
+  }
+  const tree = walkStageNotes(orb.path, orbIdx, orb.path, 0, { visited: 0 });
+  tree.name = orb.title;
+  for (const extra of orb.extraNotes || []) {
+    tree.notes.push({ title: extra.title, file: `${orbIdx}/${extra.rel}` });
+  }
+  return tree;
+}
+
+function readStageNote(orb, rel) {
+  const safe = String(rel || '').split('\\').join('/');
+  if (!safe || safe.includes('..') || safe.startsWith('/') || safe.includes('\0')) return null;
+  if (orb.virtual === 'council' && safe.startsWith('council/') && safe.endsWith('.md')) {
+    const id = path.basename(safe, '.md');
+    if (!/^[\w.-]+$/.test(id)) return null;
+    const session = readCouncilSessions().find((item) => item.id === id);
+    return session ? councilMarkdown(session) : null;
+  }
+  const extra = (orb.extraNotes || []).find((item) => item.rel === safe);
+  if (extra && fs.existsSync(extra.abs) && fs.statSync(extra.abs).isFile()) {
+    return fs.readFileSync(extra.abs, 'utf8');
+  }
+  if (!orb.path) return null;
+  const root = path.resolve(orb.path);
+  const target = path.resolve(root, safe);
+  if (target !== root && !target.startsWith(root + path.sep)) return null;
+  if (!fs.existsSync(target) || !fs.statSync(target).isFile()) return null;
+  return fs.readFileSync(target, 'utf8');
+}
+
+function walkPropDir(dir, urlBase) {
+  const out = { name: path.basename(dir), items: [], dirs: [] };
+  if (!stageDirExists(dir)) return out;
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return out; }
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue;
+    if (entry.isDirectory()) {
+      const sub = walkPropDir(path.join(dir, entry.name), `${urlBase}/${entry.name}`);
+      if (sub.items.length || sub.dirs.length) out.dirs.push(sub);
+    } else if (STAGE_PROP_EXTS.has(path.extname(entry.name).toLowerCase())) {
+      out.items.push(`${urlBase}/${entry.name}`);
+    }
+  }
+  return out;
+}
+
+function buildPropsTree() {
+  const props = walkPropDir(path.join(PUBLIC_DIR, 'props'), '/props');
+  props.name = 'props';
+  const media = walkPropDir(path.join(PUBLIC_DIR, 'media'), '/media');
+  media.name = 'media';
+  return {
+    name: 'Props',
+    items: [],
+    dirs: [props, media].filter((dir) => dir.items.length || dir.dirs.length)
+  };
+}
+
 process.on('unhandledRejection', (err) => {
   console.error('[jarvis] unhandledRejection', err);
 });
@@ -2662,16 +2811,8 @@ const server = http.createServer((req, res) => {
   }
 
   // 10-B. Barehands Full-Screen Webcam AR Spatial Interface (https://github.com/jaredrhod/barehands)
-  const BAREHANDS_DIR = path.join(__dirname, 'vendor', 'barehands');
-  const ICON_CTRL_ROOT = 'C:\\자비스_화면_아이콘 제어';
   const UI_ICONS_CFG_FILE = path.join(__dirname, 'data', 'ui_icons_config.json');
-  const DEFAULT_BAREHANDS_ORBS = [
-    { id: 'ctrl', title: '아이콘 제어', path: fs.existsSync(path.join(ICON_CTRL_ROOT, '01.화면_아이콘')) ? path.join(ICON_CTRL_ROOT, '01.화면_아이콘') : path.join(BAREHANDS_DIR, 'sample-notes'), kind: 'notes', icon: '/img/ui-icons/jarvis_ui_orb_control.png' },
-    { id: 'notes', title: 'Notes', path: fs.existsSync(path.join(ICON_CTRL_ROOT, '02.대화_노트')) ? path.join(ICON_CTRL_ROOT, '02.대화_노트') : path.join(BAREHANDS_DIR, 'sample-notes'), kind: 'notes', icon: '/img/ui-icons/icon_notes.svg' },
-    { id: 'hq', title: 'BSC_HQ', path: 'C:\\BeausCreators\\01.BSC_HQ\\1.Documents', kind: 'notes', icon: '/img/ui-icons/jarvis_ui_orb_data.png' },
-    { id: 'research', title: 'Research', path: 'C:\\BeausCreators\\03.Research', kind: 'notes', icon: '/img/ui-icons/icon_research.svg' },
-    { id: 'props', title: 'Props', path: path.join(BAREHANDS_DIR, 'media'), kind: 'media', icon: '/img/ui-icons/icon_props.svg' }
-  ];
+  const DEFAULT_BAREHANDS_ORBS = buildStageOrbs();
   let customOrbs = [];
   try {
     if (fs.existsSync(UI_ICONS_CFG_FILE)) {
@@ -2685,7 +2826,7 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/stage-ui-icons') {
     if (req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(JSON.stringify({ ok: true, defaults: DEFAULT_BAREHANDS_ORBS, custom: customOrbs }));
+      return res.end(JSON.stringify({ ok: true, defaults: DEFAULT_BAREHANDS_ORBS.map(stagePublicOrb), custom: customOrbs }));
     }
     if (req.method === 'POST') {
       const body = await parseBody(req);
@@ -2693,7 +2834,7 @@ const server = http.createServer((req, res) => {
         const newOrb = {
           id: 'custom_' + Date.now(),
           title: String(body.title).trim(),
-          path: body.path && fs.existsSync(body.path) ? body.path : ICON_CTRL_ROOT,
+          path: body.path && fs.existsSync(body.path) ? body.path : STAGE_ICON_DIR,
           kind: body.kind === 'media' ? 'media' : 'notes',
           icon: body.icon || '/img/ui-icons/icon_control.svg',
           enabled: true
@@ -2745,43 +2886,21 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
   if (pathname === '/tree' && req.method === 'GET') {
-    const orbIdx = parseInt(parsedUrl.searchParams.get('orb') || '0', 10) || 0;
-    const orbCfg = BAREHANDS_ORBS[orbIdx];
-    if (!orbCfg || orbCfg.kind !== 'notes' || !fs.existsSync(orbCfg.path)) {
+    const orbIdx = parseInt(parsedUrl.searchParams.get('orb') || '0', 10);
+    const safeIdx = Number.isFinite(orbIdx) && orbIdx >= 0 ? orbIdx : 0;
+    const orbCfg = BAREHANDS_ORBS[safeIdx];
+    if (!orbCfg || orbCfg.kind !== 'notes') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       return res.end(JSON.stringify({ name: orbCfg?.title || 'Notes', notes: [], dirs: [] }));
     }
     if (!global.__barehandsTreeCache) global.__barehandsTreeCache = new Map();
-    const cacheKey = `${orbIdx}:${orbCfg.path}`;
+    const cacheKey = `${safeIdx}:${orbCfg.virtual || ''}:${orbCfg.path || ''}`;
     const cached = global.__barehandsTreeCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < 60000) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(cached.json);
     }
-    const SKIP_DIRS = new Set(['node_modules', 'Library', 'Temp', 'Logs', 'obj', 'bin', 'venv', '.venv', 'dist', 'build', 'out', 'target', 'vendor', 'packages', '__pycache__']);
-    let visited = 0;
-    const walkNotes = (dir, depth = 0) => {
-      const out = { name: path.basename(dir), notes: [], dirs: [] };
-      if (depth > 2 || visited > 120) return out;
-      visited++;
-      let entries = [];
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) {}
-      for (const e of entries.slice(0, 28)) {
-        if (e.name.startsWith('.') || SKIP_DIRS.has(e.name)) continue;
-        const full = path.join(dir, e.name);
-        if (e.isDirectory()) {
-          const sub = walkNotes(full, depth + 1);
-          if (sub.notes.length || sub.dirs.length) out.dirs.push(sub);
-        } else if (e.name.toLowerCase().endsWith('.md') && e.name !== 'CLAUDE.md') {
-          const rel = path.relative(orbCfg.path, full).split(path.sep).join('/');
-          out.notes.push({ title: path.basename(e.name, path.extname(e.name)), file: `${orbIdx}/${rel}` });
-        }
-      }
-      return out;
-    };
-    const tree = walkNotes(orbCfg.path);
-    tree.name = orbCfg.title;
-    const json = JSON.stringify(tree);
+    const json = JSON.stringify(stageNoteTree(orbCfg, safeIdx));
     global.__barehandsTreeCache.set(cacheKey, { ts: Date.now(), json });
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     return res.end(json);
@@ -2793,38 +2912,18 @@ const server = http.createServer((req, res) => {
     const rel = fParam.slice(slashIdx + 1);
     const orbCfg = BAREHANDS_ORBS[orbIdx];
     if (orbCfg && orbCfg.kind === 'notes' && rel) {
-      const target = path.resolve(orbCfg.path, rel);
-      if (target.startsWith(path.resolve(orbCfg.path)) && fs.existsSync(target) && fs.statSync(target).isFile()) {
+      const text = readStageNote(orbCfg, rel);
+      if (text != null) {
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-        return res.end(fs.readFileSync(target, 'utf8'));
+        return res.end(text);
       }
     }
     res.writeHead(404);
     return res.end('Not found');
   }
   if (pathname === '/props' && req.method === 'GET') {
-    const mroot = path.join(BAREHANDS_DIR, 'media');
-    const EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.webm', '.glb', '.gltf']);
-    const walkMedia = (dir) => {
-      const out = { name: path.basename(dir), items: [], dirs: [] };
-      if (!fs.existsSync(dir)) return out;
-      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (e.name.startsWith('.')) continue;
-        const full = path.join(dir, e.name);
-        if (e.isDirectory()) {
-          const sub = walkMedia(full);
-          const hasReadme = fs.existsSync(path.join(full, 'README.md'));
-          if (sub.items.length || sub.dirs.length || hasReadme) out.dirs.push(sub);
-        } else if (EXTS.has(path.extname(e.name).toLowerCase())) {
-          out.items.push(path.relative(mroot, full).split(path.sep).join('/'));
-        }
-      }
-      return out;
-    };
-    const tree = walkMedia(mroot);
-    tree.name = 'Props';
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    return res.end(JSON.stringify(tree));
+    return res.end(JSON.stringify(buildPropsTree()));
   }
 
   // 11. Static Files from public/

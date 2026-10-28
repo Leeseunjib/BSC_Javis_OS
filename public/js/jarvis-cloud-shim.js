@@ -35,6 +35,72 @@
   let cachedBrain = null;
   let cachedEcosystems = null;
   let cachedMdKnowledge = null;
+  let cachedCouncil = null;
+
+  const STAGE_ORBS = [
+    { id: 'ctrl', title: '아이콘 제어', kind: 'notes', icon: '/img/ui-icons/jarvis_ui_orb_control.png' },
+    { id: 'notes', title: 'Notes', kind: 'notes', icon: '/img/ui-icons/icon_notes.svg' },
+    { id: 'hq', title: 'BSC_HQ', kind: 'notes', icon: '/img/ui-icons/jarvis_ui_orb_data.png' },
+    { id: 'research', title: 'Research', kind: 'notes', icon: '/img/ui-icons/icon_research.svg' },
+    { id: 'props', title: 'Props', kind: 'media', icon: '/img/ui-icons/icon_props.svg' }
+  ];
+
+  const STAGE_ICON_NOTES = {
+    '0/pinch.md': '# 핀치 탭\n\n집었다 놓으면 오브와 문서가 열립니다. 열린 창의 닫기 표시도 같은 탭으로 닫습니다.\n\n- 링을 탭하면 다섯 오브가 펼쳐지거나 접힙니다.\n- 오브를 탭하면 그 폴더 트리가 열립니다.\n- 문서를 탭하면 본문이 열립니다.\n',
+    '0/drag.md': '# 핀치 드래그\n\n집은 채로 움직이면 창이 이동하고, 문서 본문에서는 스크롤됩니다.\n\n창의 제목 막대를 드래그하면 위치가 바뀝니다.\n',
+    '0/scale.md': '# 양손 핀치\n\n양손을 동시에 집고 사이를 벌리거나 좁히면 창이 확대되거나 축소됩니다.\n\n마우스로는 휠이 같은 역할을 합니다.\n',
+    '0/hold.md': '# 1초 홀드\n\n집은 상태를 1초 유지하면 3D 회전으로 들어갑니다.\n\n프로프의 GLB 모델은 이 홀드 이후에 회전합니다. 모델 파일은 프로프를 열 때만 불러옵니다.\n'
+  };
+
+  const STAGE_PROP_ITEMS = [
+    '/props/apollo-11-module.glb',
+    '/props/bsc-office-scene.jpg',
+    '/props/preview-beaus-sunset.jpg',
+    '/props/preview-brand-beyond.jpg',
+    '/props/preview-moonlit-forest.jpg',
+    '/props/sd-meeting-roster.jpg',
+    '/props/sd-seoyoon.jpg',
+    '/props/sd-taeo-banner.jpg',
+    '/props/sopoong-boat.jpg',
+    '/props/triceratops.glb',
+    '/props/tycoon-full-1-office.jpg',
+    '/props/tycoon-full-2-research.jpg',
+    '/props/tycoon-full-3-ceo.jpg',
+    '/props/tycoon-full-4-meeting.jpg',
+    '/props/tycoon-scene-1-office.jpg',
+    '/props/tycoon-scene-2-research.jpg',
+    '/props/tycoon-scene-3-ceo.jpg',
+    '/props/tycoon-scene-4-meeting.jpg'
+  ];
+
+  async function loadCouncilSessions() {
+    if (cachedCouncil) return cachedCouncil;
+    try {
+      const res = await origFetch('/data/bsc-agent-council.json');
+      cachedCouncil = res.ok ? await res.json() : { sessions: [] };
+    } catch (_) {
+      cachedCouncil = { sessions: [] };
+    }
+    return cachedCouncil;
+  }
+
+  function councilMarkdown(session) {
+    const lines = [
+      `# ${session.topic || session.id || 'BSC_HQ'}`,
+      '',
+      `- 모드: ${session.modeLabel || session.mode || ''}`,
+      `- 시각: ${session.timestamp || ''}`,
+      ''
+    ];
+    for (const entry of session.entries || []) {
+      lines.push(`## ${entry.speaker || entry.agentId || '발언'}`);
+      if (entry.roleTag) lines.push(`역할: ${entry.roleTag}`);
+      lines.push('');
+      lines.push(entry.text || '');
+      lines.push('');
+    }
+    return lines.join('\n');
+  }
 
   async function loadServerDataFiles() {
     if (!cachedBrain) {
@@ -481,14 +547,15 @@
     }
 
     if (pathname === '/config') {
+      const custom = (window.__stageCustomOrbs || []).filter((orb) => orb && orb.enabled !== false);
       return jsonRes({
         name: 'J.A.R.V.I.S.',
-        orbs: [
-          { title: 'Notes', kind: 'notes' },
-          { title: 'BSC_HQ', kind: 'notes' },
-          { title: 'Research', kind: 'notes' },
-          { title: 'Props', kind: 'media' }
-        ]
+        orbs: STAGE_ORBS.concat(custom.map((orb) => ({
+          id: orb.id,
+          title: orb.title,
+          kind: orb.kind || 'notes',
+          icon: orb.icon || '/img/ui-icons/icon_control.svg'
+        })))
       });
     }
     if (pathname === '/orb') {
@@ -505,90 +572,85 @@
       const entries = mdKnowledge.entries || [];
       if (orbIdx === '0') {
         return jsonRes({
-          name: 'Notes',
-          notes: [],
-          dirs: [
-            {
-              name: 'Getting Started',
-              dirs: [],
-              notes: [
-                { title: 'Welcome', file: '0/Getting Started/Welcome.md' },
-                { title: 'The Gestures', file: '0/Getting Started/The Gestures.md' },
-                { title: 'Wire In Your AI', file: '0/Getting Started/Wire In Your AI.md' }
-              ]
-            },
-            {
-              name: 'Field Guide',
-              dirs: [],
-              notes: [
-                { title: 'Make It Yours', file: '0/Field Guide/Make It Yours.md' },
-                { title: 'Props and Models', file: '0/Field Guide/Props and Models.md' },
-                { title: 'Streaming and Recording', file: '0/Field Guide/Streaming and Recording.md' }
-              ]
-            }
-          ]
+          name: '아이콘 제어',
+          notes: [
+            { title: 'pinch', file: '0/pinch.md' },
+            { title: 'drag', file: '0/drag.md' },
+            { title: 'scale', file: '0/scale.md' },
+            { title: 'hold', file: '0/hold.md' }
+          ],
+          dirs: []
         });
       }
       if (orbIdx === '1') {
-        const hqEntries = entries.filter(e => String(e.filePath || '').includes('01.BSC_HQ')).slice(0, 40);
-        const byFolder = new Map();
-        for (const e of hqEntries) {
-          const parts = String(e.filePath || '').replace(/\\/g, '/').split('/');
-          const subName = parts[parts.indexOf('01.BSC_HQ') + 1] || 'Documents';
-          if (!byFolder.has(subName)) byFolder.set(subName, []);
-          byFolder.get(subName).push({
-            title: (e.fileName || 'Document').replace(/\.md$/i, ''),
-            file: `1/${e.filePath || e.fileName}`
-          });
-        }
-        const dirs = Array.from(byFolder.entries()).map(([name, notes]) => ({ name, dirs: [], notes }));
         return jsonRes({
-          name: 'BSC_HQ',
-          notes: [
-            { title: 'AGENTS (BSC 헌장 정본)', file: '1/AGENTS.md' },
-            { title: 'BSC J.A.R.V.I.S. 59대 글로벌 마스터 리포트', file: '1/jarvis_deep_research_report.md' }
-          ],
-          dirs: dirs.length ? dirs : [
-            {
-              name: '01.보고서 & 기획서',
-              dirs: [],
-              notes: [
-                { title: 'BSC 전사 26인 에이전트 아키텍처', file: '1/01.BSC_HQ/2.Agents/AGENTS.md' },
-                { title: 'Gemma 4 멀티모달 & 사사리사 브릿지', file: '1/01.BSC_HQ/1.Documents/Gemma4_Architecture.md' }
-              ]
-            }
-          ]
+          name: 'Notes',
+          notes: entries.slice(0, 40).map((entry, index) => ({
+            title: String(entry.title || entry.fileName || 'note').replace(/\.md$/i, ''),
+            file: `1/md/${index}`
+          })),
+          dirs: []
         });
       }
       if (orbIdx === '2') {
-        const resEntries = entries.filter(e => !String(e.filePath || '').includes('01.BSC_HQ')).slice(0, 40);
-        const bySlot = new Map();
-        for (const e of resEntries) {
-          const gName = (e.slotLabel || e.ecosystemLabel || 'Research').replace(/^[^\s]+\s/, '');
-          if (!bySlot.has(gName)) bySlot.set(gName, []);
-          bySlot.get(gName).push({
-            title: (e.fileName || 'ResearchNote').replace(/\.md$/i, ''),
-            file: `2/${e.filePath || e.fileName}`
-          });
-        }
-        const dirs = Array.from(bySlot.entries()).map(([name, notes]) => ({ name, dirs: [], notes }));
+        const council = await loadCouncilSessions();
+        const sessions = Array.isArray(council.sessions) ? council.sessions : [];
+        return jsonRes({
+          name: 'BSC_HQ',
+          notes: sessions.filter((session) => session && session.id).map((session) => ({
+            title: session.topic || session.id,
+            file: `2/council/${session.id}.md`
+          })),
+          dirs: []
+        });
+      }
+      if (orbIdx === '3') {
         return jsonRes({
           name: 'Research',
           notes: [
-            { title: '59 Global & Domestic JARVIS Benchmark', file: '2/59_Global_JARVIS_Benchmark.md' },
-            { title: 'ArtCraft 13-App Creative Suite Specs', file: '2/ArtCraft_13_Suite_Specs.md' }
+            { title: 'JARVIS 110 Sources Master Index', file: '3/JARVIS_110_Sources_Master_Index.md' },
+            { title: 'JARVIS Deep Research Report', file: '3/extra/jarvis_deep_research_report.md' }
           ],
-          dirs
+          dirs: []
         });
       }
-      return jsonRes({
-        name: 'Notes',
-        notes: [{ title: 'Welcome', file: '0/Getting Started/Welcome.md' }],
-        dirs: []
-      });
+      return jsonRes({ name: 'Notes', notes: [], dirs: [] });
     }
     if (pathname === '/note') {
       const f = parsed.searchParams.get('f') || '';
+      if (STAGE_ICON_NOTES[f]) {
+        return new Response(STAGE_ICON_NOTES[f], { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      }
+      const mdIndex = /^1\/md\/(\d+)$/.exec(f);
+      if (mdIndex) {
+        const entry = (mdKnowledge.entries || [])[Number(mdIndex[1])];
+        if (!entry) return new Response('Not found', { status: 404 });
+        const text = [
+          `# ${entry.title || entry.fileName || 'note'}`,
+          entry.filePath ? `Path: ${entry.filePath}` : '',
+          '',
+          entry.summary || ''
+        ].filter(Boolean).join('\n');
+        return new Response(text, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      }
+      const councilMatch = /^2\/council\/([\w.-]+)\.md$/.exec(f);
+      if (councilMatch) {
+        const council = await loadCouncilSessions();
+        const session = (council.sessions || []).find((item) => item.id === councilMatch[1]);
+        if (!session) return new Response('Not found', { status: 404 });
+        return new Response(councilMarkdown(session), { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      }
+      if (f === '3/extra/jarvis_deep_research_report.md') {
+        try {
+          const report = await origFetch('/assets/research_concepts/jarvis_deep_research_report.md');
+          if (report.ok) {
+            return new Response(await report.text(), { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+          }
+        } catch (_) {}
+      }
+      if (f === '3/JARVIS_110_Sources_Master_Index.md') {
+        return new Response('# JARVIS 110 Sources Master Index\n\n로컬 서버에서는 research/JARVIS_110_Sources_Master_Index.md 원문을 엽니다.\n정적 호스팅에는 그 파일이 public 경로에 없습니다.\n', { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      }
       const entries = mdKnowledge.entries || [];
       const cleanPath = f.replace(/^[0-9]+\//, '');
       const matched = entries.find(e =>
@@ -621,10 +683,15 @@
         name: 'Props',
         items: [],
         dirs: [
-          { name: 'fx', items: ['fx/fireball.png'], dirs: [] },
-          { name: 'misc', items: ['misc/glass-hands.png'], dirs: [] },
-          { name: 'holo', items: ['fx/fireball.png'], dirs: [] },
-          { name: 'models', items: ['misc/glass-hands.png'], dirs: [] }
+          { name: 'props', items: STAGE_PROP_ITEMS, dirs: [] },
+          {
+            name: 'media',
+            items: [],
+            dirs: [
+              { name: 'fx', items: ['/media/fx/fireball.png'], dirs: [] },
+              { name: 'misc', items: ['/media/misc/glass-hands.png'], dirs: [] }
+            ]
+          }
         ]
       });
     }
@@ -1149,6 +1216,24 @@
         coreMode,
         summonedWindows
       });
+    }
+
+    if (pathname === '/api/stage-ui-icons') {
+      if (!window.__stageCustomOrbs) window.__stageCustomOrbs = [];
+      if (method === 'POST') {
+        if (body.action === 'add' && body.title) {
+          window.__stageCustomOrbs.push({
+            id: 'custom_' + Date.now(),
+            title: String(body.title).trim(),
+            kind: body.kind === 'media' ? 'media' : 'notes',
+            icon: body.icon || '/img/ui-icons/icon_control.svg',
+            enabled: true
+          });
+        } else if (body.action === 'delete' && body.id) {
+          window.__stageCustomOrbs = window.__stageCustomOrbs.filter((orb) => orb.id !== body.id);
+        }
+      }
+      return jsonRes({ ok: true, defaults: STAGE_ORBS, custom: window.__stageCustomOrbs });
     }
 
     return jsonRes({ ok: true });

@@ -926,7 +926,24 @@ window.BrainGraphEngine = {
     ctx.restore();
   },
 
+  paused: false,
+  _rafId: 0,
+
+  setPaused(on) {
+    this.paused = !!on;
+    if (this.paused) {
+      if (this._rafId) cancelAnimationFrame(this._rafId);
+      this._rafId = 0;
+      return;
+    }
+    if (!this._rafId && this.ctx) {
+      this._rafId = requestAnimationFrame(() => this.animate());
+    }
+  },
+
   animate() {
+    this._rafId = 0;
+    if (this.paused || !this.ctx) return;
     const W = window.innerWidth;
     const H = window.innerHeight;
     const ctx = this.ctx;
@@ -1089,7 +1106,7 @@ window.BrainGraphEngine = {
     }
     ctx.globalAlpha = 1.0;
 
-    requestAnimationFrame(() => this.animate());
+    this._rafId = requestAnimationFrame(() => this.animate());
   },
 
   findNodeAt(x, y) {

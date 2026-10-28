@@ -30,7 +30,8 @@
       this.nodes = [];
       this.links = [];
       this.starDust = [];
-      this.active = true; // 기본 활성화 (투명 오버레이로 은은하게 작동)
+      this.active = false;
+      this._loopOn = false;
       this.rotY = 0;
       this.rotX = 0.22;
       this.spinSpeed = 0.0035;
@@ -40,15 +41,15 @@
       this.panY = 0;
       this.fov = 680;
       this.hoveredNode = null;
-      this.alpha = 0.85;
-      this.targetAlpha = 0.85;
+      this.alpha = 0;
+      this.targetAlpha = 0;
+      if (this.canvas) this.canvas.style.opacity = '0';
 
       this.initStarDust();
       this.resize();
       window.addEventListener('resize', () => this.resize());
       this.loadBrainData();
       this.animate = this.animate.bind(this);
-      requestAnimationFrame(this.animate);
     }
 
     resize() {
@@ -104,7 +105,7 @@
         topic: '#a855f7'
       };
 
-      rawNodes.slice(0, 360).forEach((rn, idx) => {
+      rawNodes.slice(0, 80).forEach((rn, idx) => {
         let x = 0, y = 0, z = 0, radius = 4.2;
         const kind = rn.kind || 'doc';
         const color = catColors[kind] || '#00f0ff';
@@ -142,7 +143,7 @@
 
       // 시냅스 연결선 구축 (가까운 노드 간 또는 rawLinks)
       if (rawLinks && rawLinks.length > 0) {
-        rawLinks.slice(0, 240).forEach(l => {
+        rawLinks.slice(0, 80).forEach(l => {
           const s = idMap.get(l.source);
           const t = idMap.get(l.target);
           if (s !== undefined && t !== undefined) {
@@ -175,20 +176,39 @@
       this.buildGalaxyMesh(raw, []);
     }
 
+    _ensureLoop() {
+      if (this._loopOn) return;
+      this._loopOn = true;
+      requestAnimationFrame(this.animate);
+    }
+
     show(smooth = true) {
       this.active = true;
       this.targetAlpha = 0.88;
       if (!smooth) this.alpha = 0.88;
       if (this.canvas) this.canvas.style.opacity = '0.88';
       this.updateStatusBadge();
+      this._ensureLoop();
     }
 
     hide(smooth = true) {
       this.active = false;
       this.targetAlpha = 0.0;
-      if (!smooth) this.alpha = 0.0;
-      if (this.canvas) this.canvas.style.opacity = '0';
+      this.alpha = 0;
+      this._loopOn = false;
+      if (this.canvas) {
+        this.canvas.style.opacity = '0';
+        if (this.ctx && this.width) this.ctx.clearRect(0, 0, this.width, this.height);
+      }
       this.updateStatusBadge();
+    }
+
+    pauseForStage(running) {
+      if (!running) {
+        this._loopOn = false;
+        return;
+      }
+      if (this.active) this._ensureLoop();
     }
 
     toggle() {
@@ -239,8 +259,12 @@
     }
 
     animate() {
+      if (!this._loopOn || !this.active) {
+        this._loopOn = false;
+        return;
+      }
       requestAnimationFrame(this.animate);
-      if (!this.canvas) return;
+      if (!this.canvas || document.hidden) return;
 
       // 알파 및 스케일 부드러운 보간
       this.alpha += (this.targetAlpha - this.alpha) * 0.08;
@@ -531,10 +555,11 @@
 
       this.recognition.onend = () => {
         this.isListening = false;
+        if (this.holdOff) return;
         // 상시 대기: 음성이 끝나도 350ms 후 자동 재시작
         clearTimeout(this.restartTimer);
         this.restartTimer = setTimeout(() => {
-          if (!this.isListening) {
+          if (!this.isListening && !this.holdOff) {
             try { this.recognition.start(); } catch (_) {}
           }
         }, 400);
@@ -543,6 +568,18 @@
       try {
         this.recognition.start();
       } catch (_) {}
+    }
+
+    suspend() {
+      this.holdOff = true;
+      clearTimeout(this.restartTimer);
+      try { this.recognition?.stop(); } catch (_) {}
+    }
+
+    resume() {
+      this.holdOff = false;
+      if (this.isListening || !this.recognition) return;
+      try { this.recognition.start(); } catch (_) {}
     }
 
     handleVoiceCommand(rawText) {
@@ -969,12 +1006,13 @@
           galBtn = document.createElement('button');
           galBtn.id = 'jarvis-galaxy-btn';
           galBtn.style.cssText = 'background:rgba(0,240,255,0.22);color:#ecfeff;border:1px solid #00f0ff;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;cursor:pointer;box-shadow:0 0 10px rgba(0,240,255,0.3);';
-          galBtn.textContent = '🌌 3D 은하 뷰 ON';
+          galBtn.textContent = '🌌 3D 은하 뷰 OFF';
           galBtn.onclick = (e) => {
             e.stopPropagation();
             galaxy.toggle();
           };
           bar.appendChild(galBtn);
+          galaxy.updateStatusBadge();
         }
 
         let micBtn = document.getElementById('jarvis-mic-btn');
